@@ -4,6 +4,7 @@
 namespace Hanson\Foundation;
 
 
+use ArrayAccess;
 use Doctrine\Common\Cache\Cache;
 use Doctrine\Common\Cache\FilesystemCache;
 use Monolog\Handler\HandlerInterface;
@@ -36,7 +37,7 @@ class Foundation extends Container
 
         $this->setConfig($config);
 
-        if ($this->config['debug'] ?? false) {
+        if (!!$this->getConfig('debug')) {
             error_reporting(E_ALL);
         }
 
@@ -58,7 +59,7 @@ class Foundation extends Container
             return new Http($this);
         };
 
-        if ($cache = $this->getConfig()['cache'] ?? null and $cache instanceof Cache) {
+        if (($cache = $this->getConfig('cache')) && $cache instanceof Cache) {
             $this['cache'] = $this->getConfig()['cache'];
         } else {
             $this['cache'] = function () {
@@ -76,18 +77,18 @@ class Foundation extends Container
             return;
         }
 
-        $logger = new Logger($this->getConfig()['log']['name'] ?? 'foundation');
+        $logger = new Logger($this->getConfig('log.name', 'foundation'));
 
-        if (!$this->getConfig()['debug'] ?? false || defined('PHPUNIT_RUNNING')) {
+        if (!$this->getConfig('debug') || defined('PHPUNIT_RUNNING')) {
             $logger->pushHandler(new NullHandler());
-        } elseif (($this->getConfig()['log']['handler'] ?? null) instanceof HandlerInterface) {
+        } elseif (($this->getConfig('log.handler')) instanceof HandlerInterface) {
             $logger->pushHandler($this->getConfig()['log']['handler']);
-        } elseif ($logFile = $this->getConfig()['log']['file'] ?? null) {
+        } elseif ($logFile = $this->getConfig('log.file')) {
             $logger->pushHandler(new StreamHandler(
                 $logFile,
-                $this->getConfig()['log']['level'] ?? Logger::WARNING,
+                $this->getConfig('log.level', Logger::WARNING),
                 true,
-                $this->getConfig()['log']['permission'] ?? null
+                $this->getConfig('log.permission')
             ));
         }
 
@@ -109,9 +110,30 @@ class Foundation extends Container
         $this->config = $config;
     }
 
-    public function getConfig($key = null)
+    /**
+     * copy from Arr::get()
+     * @see https://github.com/illuminate/support/blob/feab1d1495fd6d38970bd6c83586ba2ace8f299a/Arr.php#L274
+     * @param null $key
+     * @param null $default
+     * @return mixed|null
+     */
+    public function getConfig($key = null, $default = null)
     {
-        return $key ? ($this->config[$key] ?? null) : $this->config;
+        if (is_null($key)) {
+            return $this->config;
+        }
+        if (isset($this->config[$key])) {
+            return $this->config[$key];
+        }
+        $array = null;
+        foreach (explode('.', $key) as $segment) {
+            if ((!is_array($this->config) || !array_key_exists($segment, $this->config)) &&
+                (!$this->config instanceof ArrayAccess || !$this->config->offsetExists($segment))) {
+                return $default instanceof \Closure ? $default() : $default;
+            }
+            $array = $this->config[$segment];
+        }
+        return $array;
     }
 
     /**
